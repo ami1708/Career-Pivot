@@ -18,3 +18,4 @@ playwright/.auth/*.json
 backend/job_agent.db
 backend/.env
 frontend/.env
+.vercel
