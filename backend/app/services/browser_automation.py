@@ -36,7 +36,7 @@ def prefill_application_form(url: str, answers: dict, resume_path: str | None = 
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
             filled = 0
-            for label, value in {**COMMON_FIELD_MAP, **answers}.items():
+            for label, value in _field_candidates(answers):
                 if value is None:
                     continue
                 if _try_fill(page, label, str(value)):
@@ -59,7 +59,7 @@ def prefill_application_form(url: str, answers: dict, resume_path: str | None = 
                 )
             if filled == 0 and not uploaded_resume:
                 return PrefillResult(url, False, False, "No matching application fields were found. Manual review needed.")
-            submit = page.locator("button[type='submit'], input[type='submit']").first
+            submit = page.locator("button[type='submit'], input[type='submit']").first()
             submit.click(timeout=5000)
             return PrefillResult(url, False, True, "Form submitted.")
         except Exception as exc:
@@ -68,9 +68,26 @@ def prefill_application_form(url: str, answers: dict, resume_path: str | None = 
             browser.close()
 
 
+def _field_candidates(answers: dict) -> list[tuple[str, str | None]]:
+    candidates: list[tuple[str, str | None]] = list(COMMON_FIELD_MAP.items())
+    label_aliases = {
+        "why_this_role": ["why this role", "why are you interested", "why do you want to work"],
+        "relevant_experience": ["relevant experience", "experience", "tell us about your experience"],
+        "notice_period": ["notice period", "availability", "when can you start"],
+        "work_authorization": ["work authorization", "authorized to work", "visa status"],
+        "salary_expectation_note": ["salary expectation", "expected salary", "compensation expectation"],
+    }
+    for key, value in answers.items():
+        if value is None:
+            continue
+        labels = label_aliases.get(key, [key.replace("_", " ")])
+        candidates.extend((label, str(value)) for label in labels)
+    return candidates
+
+
 def _try_fill(page, label: str, value: str) -> bool:
     try:
-        label_locator = page.get_by_label(label, exact=False).first
+        label_locator = page.get_by_label(label, exact=False).first()
         if label_locator.count() > 0:
             label_locator.fill(value, timeout=1000)
             return True
@@ -89,7 +106,7 @@ def _try_fill(page, label: str, value: str) -> bool:
         f"textarea[placeholder*='{label}' i]",
     ]
     for selector in selectors:
-        locator = page.locator(selector).first
+        locator = page.locator(selector).first()
         try:
             if locator.count() > 0:
                 locator.fill(value, timeout=1000)

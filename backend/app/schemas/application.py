@@ -23,6 +23,9 @@ class PrepareApplicationResponse(BaseModel):
     application: ApplicationRead
     dry_run: bool
     message: str
+    job_url: str
+    answers: dict[str, Any]
+    resume_path: str | None = None
 
 
 class AutoApplyRequest(BaseModel):

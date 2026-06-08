@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urljoin
 
 from app.core.config import get_settings
 from app.services.job_sources.base import JobListing
@@ -26,7 +27,7 @@ class PlaywrightBoardSource:
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
-            return []
+            raise RuntimeError("Playwright is not installed. Run `playwright install chromium` for browser job boards.")
 
         url = self.search_url_template.format(query=query.replace(" ", "%20"), location=location.replace(" ", "%20"))
         listings: list[JobListing] = []
@@ -38,13 +39,16 @@ class PlaywrightBoardSource:
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(1500)
-                cards = page.locator("a[href*='job'], a[href*='career'], [data-job-id], .job, .posting").all()
+                cards = page.locator(_card_selector(self.board)).all()
                 for idx, card in enumerate(cards[:limit]):
-                    text = compact_whitespace(card.inner_text(timeout=1000))
-                    href = card.get_attribute("href") or url
+                    try:
+                        text = compact_whitespace(card.inner_text(timeout=1200))
+                    except Exception:
+                        continue
+                    href = _extract_href(card, url)
                     if not text:
                         continue
-                    title = text.split(" at ")[0][:120]
+                    title = _extract_title(text)
                     listings.append(
                         JobListing(
                             source=f"{self.name}:{self.board}",
@@ -62,6 +66,43 @@ class PlaywrightBoardSource:
                 context.close()
                 browser.close()
         return listings
+
+
+def _card_selector(board: str) -> str:
+    board_selectors = {
+        "linkedin": ".base-card, .job-search-card, li.jobs-search-results__list-item, a[href*='/jobs/view/']",
+        "instahyre": ".job, .employer-row, div[class*='job'], a[href*='/job-']",
+        "naukri": ".srp-jobtuple-wrapper, .jobTuple, article[class*='job'], a[href*='job-listings']",
+        "indeed": ".job_seen_beacon, td.resultContent, .jobsearch-SerpJobCard, a[href*='/rc/clk'], a[href*='jk=']",
+        "wellfound": "[data-test*='Job'], [data-test*='Startup'], div[class*='job'], a[href*='/jobs']",
+    }
+    generic = "a[href*='job'], a[href*='career'], [data-job-id], .job, .posting"
+    return f"{board_selectors.get(board, generic)}, {generic}"
+
+
+def _extract_href(card, base_url: str) -> str:
+    try:
+        href = card.get_attribute("href")
+        if href:
+            return urljoin(base_url, href)
+    except Exception:
+        pass
+    try:
+        link = card.locator("a[href]").first()
+        href = link.get_attribute("href", timeout=1000)
+        if href:
+            return urljoin(base_url, href)
+    except Exception:
+        pass
+    return base_url
+
+
+def _extract_title(text: str) -> str:
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), text)
+    for separator in (" at ", "\n", " | "):
+        if separator in first_line:
+            first_line = first_line.split(separator, 1)[0]
+    return first_line[:120]
 
 
 def _storage_state_path(board: str) -> str | None:

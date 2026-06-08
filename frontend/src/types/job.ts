@@ -102,3 +102,40 @@ export type AutoApplyResponse = {
   run_id: number | null;
   results: AutoApplyJobResult[];
 };
+
+export type DiscoverySourceStats = {
+  attempts: number;
+  discovered: number;
+  accepted: number;
+  skipped: number;
+  errors: string[];
+};
+
+export type DiscoveryResponse = {
+  discovered: number;
+  accepted: number;
+  skipped: number;
+  run_id: number | null;
+  errors: string[];
+  sources: Record<string, DiscoverySourceStats>;
+};
+
+export type PrepareApplicationResponse = {
+  application: {
+    id: number;
+    job_id: number;
+    status: string;
+    answers: Record<string, unknown>;
+    resume_artifact_id: number | null;
+    cover_letter_artifact_id: number | null;
+    submitted_at: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  dry_run: boolean;
+  message: string;
+  job_url: string;
+  answers: Record<string, unknown>;
+  resume_path: string | null;
+};

@@ -62,4 +62,5 @@ class DiscoveryResponse(BaseModel):
     accepted: int
     skipped: int
     run_id: int | None = None
-
+    errors: list[str] = Field(default_factory=list)
+    sources: dict[str, Any] = Field(default_factory=dict)

@@ -13,12 +13,26 @@ import {
   sendOutreach,
   updateJobStatus,
 } from "./lib/api";
-import type { Artifact, ConnectorStatus, DashboardSummary, Job, JobStatus, Profile } from "./types/job";
+import type { Artifact, ConnectorStatus, DashboardSummary, DiscoveryResponse, Job, JobStatus, PrepareApplicationResponse, Profile } from "./types/job";
 import { ActionButton } from "./components/ActionButton";
 import { JobBoard } from "./components/JobBoard";
 import { JobDetail } from "./components/JobDetail";
 import { ProfilePanel } from "./components/ProfilePanel";
 import { SummaryBar } from "./components/SummaryBar";
+
+const SOURCE_OPTIONS = [
+  ["remotive", "Remotive"],
+  ["remoteok", "RemoteOK"],
+  ["greenhouse", "Greenhouse"],
+  ["lever", "Lever"],
+  ["linkedin", "LinkedIn"],
+  ["instahyre", "Instahyre"],
+  ["naukri", "Naukri"],
+  ["indeed", "Indeed"],
+  ["wellfound", "Wellfound"],
+] as const;
+
+const DEFAULT_SOURCES = SOURCE_OPTIONS.map(([value]) => value);
 
 export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -28,6 +42,8 @@ export default function App() {
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [activeStatus, setActiveStatus] = useState<JobStatus>("new");
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [selectedSources, setSelectedSources] = useState<string[]>(DEFAULT_SOURCES);
+  const [lastDiscovery, setLastDiscovery] = useState<DiscoveryResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -91,6 +107,55 @@ export default function App() {
     }
   }
 
+  function toggleSource(source: string) {
+    setSelectedSources((current) => (current.includes(source) ? current.filter((item) => item !== source) : [...current, source]));
+  }
+
+  function handleDiscovery() {
+    runAction(
+      () => discoverJobs(selectedSources.length ? selectedSources : undefined),
+      (result) => {
+        setLastDiscovery(result);
+        return discoveryNotice(result);
+      }
+    );
+  }
+
+  async function handlePrepareApplication() {
+    if (!selectedJob) {
+      return;
+    }
+    const reviewWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await prepareApplication(selectedJob.id);
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(applicationPacket(selectedJob, result));
+        copied = true;
+      } catch {
+        copied = false;
+      }
+      if (reviewWindow) {
+        reviewWindow.location.href = result.job_url;
+      }
+      setNotice(
+        `${result.message} ${reviewWindow ? "Opened the application page." : "Use the Open button to review the application page."} ${
+          copied ? "Autofill answers were copied to clipboard." : "Autofill answers are available in the generated material."
+        }`
+      );
+      await load();
+      setArtifacts(await fetchArtifacts(selectedJob.id));
+    } catch (err) {
+      reviewWindow?.close();
+      setError(err instanceof Error ? err.message : "Application preparation failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="flex min-h-dvh flex-col bg-[#f3f7f6] lg:flex-row">
       <ProfilePanel profile={profile} connectors={connectors} onProfileChanged={load} />
@@ -108,7 +173,7 @@ export default function App() {
             <div className="flex flex-wrap gap-2">
               <ActionButton
                 icon={<Search className="size-4" />}
-                onClick={() => runAction(discoverJobs, "Discovery completed.")}
+                onClick={handleDiscovery}
                 disabled={busy}
                 variant="primary"
               >
@@ -138,6 +203,27 @@ export default function App() {
               </ActionButton>
             </div>
           </div>
+          <div className="mt-4 border-t border-slate-100 pt-3">
+            <p className="text-xs font-semibold uppercase text-slate-500">Discovery Sources</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {SOURCE_OPTIONS.map(([value, label]) => {
+                const checked = selectedSources.includes(value);
+                return (
+                  <label
+                    key={value}
+                    className={`inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium ${
+                      checked
+                        ? "border-emerald-600 bg-emerald-50 text-emerald-800"
+                        : "border-slate-200 bg-slate-50 text-slate-600 hover:border-emerald-200"
+                    }`}
+                  >
+                    <input className="size-4 accent-emerald-700" type="checkbox" checked={checked} onChange={() => toggleSource(value)} />
+                    <span>{label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
         </header>
 
         {(error || notice) && (
@@ -145,6 +231,36 @@ export default function App() {
             {error ? <AlertCircle className="mt-0.5 size-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}
             <span className="text-pretty">{error || notice}</span>
           </div>
+        )}
+
+        {lastDiscovery && (
+          <section className="rounded-md border border-slate-200 bg-white p-4 text-sm shadow-sm">
+            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <h2 className="font-semibold text-slate-950">Last Discovery Run</h2>
+              <p className="text-slate-600">
+                {lastDiscovery.discovered} discovered · {lastDiscovery.accepted} matched · {lastDiscovery.skipped} skipped
+              </p>
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {Object.entries(lastDiscovery.sources).map(([source, stats]) => (
+                <div key={source} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-800">{source}</span>
+                    <span className="tabular-nums text-slate-600">{stats.discovered} found</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {stats.accepted} matched · {stats.skipped} skipped · {stats.attempts} attempts
+                  </p>
+                  {stats.errors.length > 0 && <p className="mt-1 line-clamp-2 text-xs text-red-600">{stats.errors[0]}</p>}
+                </div>
+              ))}
+            </div>
+            {lastDiscovery.errors.length > 0 && (
+              <p className="mt-3 text-xs text-amber-700">
+                Some sources were blocked or returned no readable results. Try fewer browser boards or log in with saved Playwright auth for those sites.
+              </p>
+            )}
+          </section>
         )}
 
         <SummaryBar summary={summary} />
@@ -162,7 +278,7 @@ export default function App() {
             artifacts={artifacts}
             busy={busy}
             onGenerate={() => selectedJob && runAction(() => generateArtifacts(selectedJob.id), "Application material generated.")}
-            onPrepare={() => selectedJob && runAction(() => prepareApplication(selectedJob.id), "Application package prepared.")}
+            onPrepare={handlePrepareApplication}
             onOutreach={() => selectedJob && runAction(() => sendOutreach(selectedJob.id), "Outreach processed.")}
             onStatus={(status) => selectedJob && runAction(() => updateJobStatus(selectedJob.id, status), "Status updated.")}
           />
@@ -170,4 +286,37 @@ export default function App() {
       </div>
     </main>
   );
+}
+
+function discoveryNotice(result: DiscoveryResponse) {
+  const sourceCount = Object.keys(result.sources).length;
+  const errorText = result.errors.length ? ` ${result.errors.length} source issue${result.errors.length === 1 ? "" : "s"} logged.` : "";
+  return `Discovery completed across ${sourceCount} sources: ${result.discovered} jobs discovered, ${result.accepted} matched, ${result.skipped} skipped.${errorText}`;
+}
+
+function applicationPacket(job: Job, result: PrepareApplicationResponse) {
+  const answers = Object.entries(result.answers)
+    .map(([key, value]) => `${key}: ${formatAnswer(value)}`)
+    .join("\n");
+  return [
+    "Career Pivot Application Packet",
+    "",
+    `Role: ${job.title}`,
+    `Company: ${job.company}`,
+    `Apply URL: ${result.job_url}`,
+    result.resume_path ? `Resume: ${result.resume_path}` : "Resume: not loaded",
+    "",
+    "Autofill answers",
+    answers || "No generated answers yet. Click Generate Material first for richer answers.",
+  ].join("\n");
+}
+
+function formatAnswer(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return "Not specified";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value);
 }

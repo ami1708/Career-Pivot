@@ -178,9 +178,17 @@ def generate_artifacts(job_id: int, db: Session = Depends(get_db)) -> GenerateAr
 @router.post("/jobs/{job_id}/apply/prepare", response_model=PrepareApplicationResponse)
 def prepare_job_application(job_id: int, db: Session = Depends(get_db)) -> PrepareApplicationResponse:
     settings = get_settings()
+    profile = get_or_create_profile(db)
     job = _get_job_or_404(db, job_id)
     application, message = prepare_application(db, job)
-    return PrepareApplicationResponse(application=application, dry_run=settings.application_dry_run, message=message)
+    return PrepareApplicationResponse(
+        application=application,
+        dry_run=settings.application_dry_run,
+        message=message,
+        job_url=job.url,
+        answers=application.answers or {},
+        resume_path=profile.source_resume_path,
+    )
 
 
 @router.post("/jobs/{job_id}/outreach/send", response_model=SendOutreachResponse)

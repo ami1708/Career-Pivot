@@ -86,6 +86,7 @@ def run_discovery(db: Session, selected_sources: list[str] | None = None, limit:
     accepted = 0
     skipped = 0
     errors: list[str] = []
+    source_stats: dict[str, dict[str, Any]] = {}
 
     try:
         sources = build_sources(selected_sources)
@@ -95,34 +96,59 @@ def run_discovery(db: Session, selected_sources: list[str] | None = None, limit:
         locations = profile.preferred_locations[:3] or ["Remote India"]
         per_source_limit = max(1, limit // max(len(sources), 1))
         for source in sources:
-            for query in queries:
-                for location in locations:
+            source_key = _source_key(source)
+            stats = source_stats.setdefault(
+                source_key,
+                {"attempts": 0, "discovered": 0, "accepted": 0, "skipped": 0, "errors": []},
+            )
+            source_queries = queries[:1] if isinstance(source, PlaywrightBoardSource) else queries
+            source_locations = locations[:1] if isinstance(source, PlaywrightBoardSource) else locations
+            for query in source_queries:
+                for location in source_locations:
+                    stats["attempts"] += 1
                     try:
                         listings = source.fetch(query=query, location=location, limit=per_source_limit)
                     except Exception as exc:  # External job sites are noisy; log and keep moving.
-                        errors.append(f"{getattr(source, 'name', source.__class__.__name__)}: {exc}")
+                        message = f"{source_key}: {exc}"
+                        errors.append(message)
+                        stats["errors"].append(str(exc))
                         continue
+                    stats["discovered"] += len(listings)
                     for listing in listings:
                         discovered += 1
                         job = upsert_job(db, profile, listing)
                         if job.score >= settings.min_match_score:
                             accepted += 1
+                            stats["accepted"] += 1
                         else:
                             skipped += 1
+                            stats["skipped"] += 1
         rescore_existing_jobs(db, profile)
         run.status = "success"
-        run.summary = {"discovered": discovered, "accepted": accepted, "skipped": skipped, "errors": errors}
+        run.summary = {
+            "discovered": discovered,
+            "accepted": accepted,
+            "skipped": skipped,
+            "errors": errors,
+            "sources": source_stats,
+        }
     except Exception as exc:
         run.status = "failed"
         run.error = str(exc)
-        run.summary = {"discovered": discovered, "accepted": accepted, "skipped": skipped, "errors": errors}
+        run.summary = {
+            "discovered": discovered,
+            "accepted": accepted,
+            "skipped": skipped,
+            "errors": errors,
+            "sources": source_stats,
+        }
         raise
     finally:
         run.finished_at = datetime.utcnow()
         db.add(run)
         db.commit()
 
-    return {"discovered": discovered, "accepted": accepted, "skipped": skipped, "run_id": run.id}
+    return {"discovered": discovered, "accepted": accepted, "skipped": skipped, "run_id": run.id, "errors": errors, "sources": source_stats}
 
 
 def rescore_existing_jobs(db: Session, profile: Profile) -> None:
@@ -218,3 +244,9 @@ def upsert_job(db: Session, profile: Profile, listing: Any) -> Job:
 def _was_auto_apply_skipped(job: Job) -> bool:
     last_attempt = (job.raw or {}).get("last_auto_apply", {})
     return last_attempt.get("status") == "skipped" and (job.rejection_reason or "").startswith("Auto-apply skipped")
+
+
+def _source_key(source: Any) -> str:
+    name = getattr(source, "name", source.__class__.__name__)
+    board = getattr(source, "board", None)
+    return f"{name}:{board}" if board else str(name)

@@ -1,32 +1,71 @@
-import type { Artifact, AutoApplyResponse, ConnectorStatus, DashboardSummary, Job, Profile, ProfileUpdatePayload } from "../types/job";
+import type {
+  Artifact,
+  AutoApplyResponse,
+  ConnectorStatus,
+  DashboardSummary,
+  DiscoveryResponse,
+  Job,
+  PrepareApplicationResponse,
+  Profile,
+  ProfileUpdatePayload,
+} from "../types/job";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed: ${response.status}`);
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+      ...options,
+    });
+    if (!response.ok) {
+      throw new Error(await errorText(response));
+    }
+    return response.json() as Promise<T>;
+  } catch (err) {
+    throw normalizeFetchError(err);
   }
-  return response.json() as Promise<T>;
 }
 
 async function uploadRequest<T>(path: string, formData: FormData): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: "POST",
-    body: formData,
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed: ${response.status}`);
+  try {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      body: formData,
+    });
+    if (!response.ok) {
+      throw new Error(await errorText(response));
+    }
+    return response.json() as Promise<T>;
+  } catch (err) {
+    throw normalizeFetchError(err);
   }
-  return response.json() as Promise<T>;
+}
+
+async function errorText(response: Response) {
+  const text = await response.text();
+  try {
+    const payload = JSON.parse(text) as { detail?: unknown; message?: unknown };
+    if (typeof payload.detail === "string") {
+      return payload.detail;
+    }
+    if (typeof payload.message === "string") {
+      return payload.message;
+    }
+  } catch {
+    // Fall back to raw text below.
+  }
+  return text || `Request failed: ${response.status}`;
+}
+
+function normalizeFetchError(err: unknown) {
+  if (err instanceof TypeError && err.message.toLowerCase().includes("failed to fetch")) {
+    return new Error(`Backend is not reachable at ${API_BASE_URL}. Start the FastAPI server, then refresh Career Pivot.`);
+  }
+  return err instanceof Error ? err : new Error("Request failed.");
 }
 
 export function fetchProfile() {
@@ -59,10 +98,10 @@ export async function fetchJobs() {
   return payload.jobs;
 }
 
-export function discoverJobs() {
-  return request("/api/jobs/discover", {
+export function discoverJobs(sources?: string[]) {
+  return request<DiscoveryResponse>("/api/jobs/discover", {
     method: "POST",
-    body: JSON.stringify({ limit: 60 }),
+    body: JSON.stringify({ limit: 80, sources }),
   });
 }
 
@@ -78,7 +117,7 @@ export function generateArtifacts(jobId: number) {
 }
 
 export function prepareApplication(jobId: number) {
-  return request(`/api/jobs/${jobId}/apply/prepare`, { method: "POST" });
+  return request<PrepareApplicationResponse>(`/api/jobs/${jobId}/apply/prepare`, { method: "POST" });
 }
 
 export function autoApplyJobs(limit = 10) {

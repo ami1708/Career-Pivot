@@ -98,7 +98,7 @@ export function JobDetail({ job, artifacts, busy, onGenerate, onPrepare, onOutre
           Generate Material
         </ActionButton>
         <ActionButton icon={<FileCheck2 className="size-4" />} onClick={onPrepare} disabled={busy}>
-          Prepare Application
+          Prepare + Open Apply
         </ActionButton>
         <ActionButton icon={<Send className="size-4" />} onClick={onOutreach} disabled={busy}>
           Draft or Send Outreach
