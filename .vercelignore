@@ -1,4 +1,3 @@
-backend/
 data/
 docs/
 examples/
@@ -6,5 +5,9 @@ playwright/
 scripts/
 .env
 .env.*
+backend/.venv/
+backend/.pytest_cache/
+backend/tests/
+backend/job_agent.db
 frontend/node_modules/
 frontend/dist/

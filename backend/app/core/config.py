@@ -1,4 +1,5 @@
 from functools import lru_cache
+import os
 from pathlib import Path
 
 from pydantic import field_validator
@@ -7,7 +8,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PROJECT_DIR = BACKEND_DIR if (BACKEND_DIR / "data").exists() else BACKEND_DIR.parent
-DATA_DIR = PROJECT_DIR / "data"
+IS_VERCEL = os.getenv("VERCEL") == "1"
+DATA_DIR = Path(os.getenv("CAREER_PIVOT_DATA_DIR", "/tmp/career-pivot/data" if IS_VERCEL else str(PROJECT_DIR / "data")))
+DEFAULT_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    f"sqlite:////tmp/career-pivot/job_agent.db" if IS_VERCEL else f"sqlite:///{BACKEND_DIR / 'job_agent.db'}",
+)
 
 
 class Settings(BaseSettings):
@@ -17,7 +23,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     backend_cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
-    database_url: str = f"sqlite:///{BACKEND_DIR / 'job_agent.db'}"
+    database_url: str = DEFAULT_DATABASE_URL
 
     min_match_score: int = 80
     preferred_salary_min_lpa: float | None = None

@@ -1,14 +1,12 @@
 {
-  "installCommand": "cd frontend && npm ci",
-  "buildCommand": "cd frontend && npm run build",
-  "outputDirectory": "frontend/dist",
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ],
   "experimentalServices": {
+    "backend": {
+      "entrypoint": "backend/server.py",
+      "routePrefix": "/api",
+      "framework": "fastapi",
+      "memory": 1024,
+      "maxDuration": 60
+    },
     "frontend": {
       "entrypoint": "frontend",
       "routePrefix": "/",

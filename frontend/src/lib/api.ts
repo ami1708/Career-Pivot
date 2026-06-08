@@ -10,7 +10,15 @@ import type {
   ProfileUpdatePayload,
 } from "../types/job";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? defaultApiBaseUrl();
+
+function defaultApiBaseUrl() {
+  if (typeof window === "undefined") {
+    return "http://localhost:8000";
+  }
+  const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+  return localHosts.has(window.location.hostname) ? "http://localhost:8000" : "";
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   try {
@@ -63,7 +71,11 @@ async function errorText(response: Response) {
 
 function normalizeFetchError(err: unknown) {
   if (err instanceof TypeError && err.message.toLowerCase().includes("failed to fetch")) {
-    return new Error(`Backend is not reachable at ${API_BASE_URL}. Start the FastAPI server, then refresh Career Pivot.`);
+    const target = API_BASE_URL || `${window.location.origin}/api`;
+    const action = API_BASE_URL
+      ? "Start the FastAPI server, then refresh Career Pivot."
+      : "The hosted backend is not responding yet. Refresh in a moment, or check the Vercel backend deployment.";
+    return new Error(`Backend is not reachable at ${target}. ${action}`);
   }
   return err instanceof Error ? err : new Error("Request failed.");
 }
