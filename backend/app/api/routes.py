@@ -131,6 +131,7 @@ def list_jobs(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ) -> JobListResponse:
+    _ensure_hosted_jobs(db)
     statement = select(Job)
     count_statement = select(func.count()).select_from(Job)
     if status:
@@ -217,6 +218,8 @@ def auto_apply_jobs(payload: AutoApplyRequest = AutoApplyRequest(), db: Session 
 
 @router.get("/dashboard/summary", response_model=DashboardSummary)
 def dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummary:
+    _ensure_hosted_jobs(db)
+
     def count_status(status: str) -> int:
         return db.scalar(select(func.count()).select_from(Job).where(Job.status == status)) or 0
 
@@ -260,3 +263,12 @@ def _get_job_or_404(db: Session, job_id: int) -> Job:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
     return job
+
+
+def _ensure_hosted_jobs(db: Session) -> None:
+    settings = get_settings()
+    if not settings.auto_discover_on_empty:
+        return
+    total = db.scalar(select(func.count()).select_from(Job)) or 0
+    if total == 0:
+        run_discovery(db, selected_sources=["greenhouse"], limit=20)

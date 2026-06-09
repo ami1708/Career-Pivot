@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     run_scheduler: bool = False
     daily_auto_apply_enabled: bool = True
     daily_auto_apply_limit: int = 10
+    auto_discover_on_empty: bool = IS_VERCEL and not os.getenv("DATABASE_URL")
     sample_jobs_enabled: bool = False
     public_job_apis_enabled: bool = True
     browser_job_boards_enabled: bool = False
